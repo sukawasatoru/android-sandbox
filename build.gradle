@@ -1,0 +1,43 @@
+buildscript {
+    repositories {
+        jcenter()
+
+        maven {
+            url 'https://plugins.gradle.org/m2/'
+        }
+    }
+
+    dependencies {
+        classpath "com.android.tools.build:gradle:$android_plugin_version"
+        classpath "net.ltgt.gradle:gradle-errorprone-plugin:$errorprone_plugin_version"
+        classpath "me.tatarka:gradle-retrolambda:$retrolambda_version"
+    }
+}
+
+allprojects {
+    repositories {
+        jcenter()
+
+        maven {
+            url "https://maven.google.com"
+        }
+    }
+}
+
+task clean(type: Delete) {
+    delete rootProject.buildDir
+}
+
+ext {
+    def prop = loadVersionProperties()
+    version_name = prop.getProperty('version_name')
+    version_code = prop.getProperty('version_code')
+}
+
+def loadVersionProperties() {
+    def prop = new Properties()
+    def propName = hasProperty('version_properties') ?
+            version_properties : 'version.properties'
+    prop.load(new File(projectDir, propName).newInputStream())
+    prop
+}

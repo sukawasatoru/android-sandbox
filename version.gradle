@@ -1,0 +1,174 @@
+def KEY_VERSION_NAME = 'version_name'
+
+task setVersion {
+    doLast {
+        if (!project.hasProperty(KEY_VERSION_NAME)) {
+            logger.quiet('usase\n  setVersion -Pversion_name=<(0..125).(A..Z).(0..695).(0..1280)>')
+            return
+        }
+
+        def version = new Version(project.getProperty(KEY_VERSION_NAME).toString())
+        logger.quiet("version_name=$version")
+
+        def propFile = retrieveVersionFile(project)
+        if (!propFile.exists()) {
+            propFile.createNewFile()
+        }
+        def prop = new Properties()
+        prop.load(propFile.newDataInputStream())
+        prop.setProperty(KEY_VERSION_NAME, version.toString())
+        prop.setProperty('version_code', version.versionCode.toString())
+        prop.store(propFile.newOutputStream(), null)
+    }
+}
+
+task showVersion {
+    doLast {
+        def prop = new Properties()
+        prop.load(retrieveVersionFile(project).newInputStream())
+        def versionName = prop.getProperty(KEY_VERSION_NAME, null)
+
+        def version = versionName == null ? null : new Version(versionName)
+
+        logger.quiet("versionName=${version == null ? 'N/A' : version}\n" +
+                "  - major=${version == null ? 'N/A' : version.major}\n" +
+                "  - brahch=${version == null ? 'N/A' : version.branch}\n" +
+                "  - minor=${version == null ? 'N/A' : version.minor}\n" +
+                "  - revision=${version == null ? 'N/A' : version.revision}\n" +
+                "versionCode=${version == null ? 'N/A' : version.versionCode}")
+    }
+}
+
+task bumpMajor {
+    doLast {
+        def propFile = retrieveVersionFile(project)
+        if (!propFile.exists()) {
+            propFile.createNewFile()
+        }
+        def prop = new Properties()
+        prop.load(propFile.newDataInputStream())
+        def version = new Version(prop.getProperty(KEY_VERSION_NAME))
+        version.major++
+        prop.setProperty(KEY_VERSION_NAME, version.toString())
+        prop.setProperty('version_code', version.versionCode.toString())
+        prop.store(propFile.newOutputStream(), null)
+    }
+}
+
+task bumpBranch {
+    doLast {
+        def propFile = retrieveVersionFile(project)
+        if (!propFile.exists()) {
+            propFile.createNewFile()
+        }
+        def prop = new Properties()
+        prop.load(propFile.newDataInputStream())
+        def version = new Version(prop.getProperty(KEY_VERSION_NAME))
+        version.branch++
+        prop.setProperty(KEY_VERSION_NAME, version.toString())
+        prop.setProperty('version_code', version.versionCode.toString())
+        prop.store(propFile.newOutputStream(), null)
+    }
+}
+
+task bumpMinor {
+    doLast {
+        def propFile = retrieveVersionFile(project)
+        if (!propFile.exists()) {
+            propFile.createNewFile()
+        }
+        def prop = new Properties()
+        prop.load(propFile.newDataInputStream())
+        def version = new Version(prop.getProperty(KEY_VERSION_NAME))
+        version.minor++
+        prop.setProperty(KEY_VERSION_NAME, version.toString())
+        prop.setProperty('version_code', version.versionCode.toString())
+        prop.store(propFile.newOutputStream(), null)
+    }
+}
+
+task bumpRevision {
+    doLast {
+        def propFile = retrieveVersionFile(project)
+        if (!propFile.exists()) {
+            propFile.createNewFile()
+        }
+        def prop = new Properties()
+        prop.load(propFile.newDataInputStream())
+        def version = new Version(prop.getProperty(KEY_VERSION_NAME))
+        version.revision++
+        prop.setProperty(KEY_VERSION_NAME, version.toString())
+        prop.setProperty('version_code', version.versionCode.toString())
+        prop.store(propFile.newOutputStream(), null)
+    }
+}
+
+static def retrieveVersionFile(Project project) {
+    def propName = project.hasProperty('version_properties') ?
+            project.version_properties : 'version.properties'
+    new File(project.projectDir, propName)
+}
+
+class Version {
+    int major
+
+    void setMajor(int major) {
+        if (major < 0 || 125 < major) {
+            throw new IllegalAccessError("major=0..125")
+        }
+
+        this.major = major
+    }
+
+    char branch
+
+    void setBranch(char branch) {
+        if (branch < 'A'.toCharacter() || 'Z'.toCharacter() < branch) {
+            throw new IllegalArgumentException("branch=A..Z")
+        }
+
+        this.branch = branch
+    }
+
+    int minor
+
+    void setMinor(int minor) {
+        if (minor < 0 || 695 < minor) {
+            throw new IllegalArgumentException("minor=0..695")
+        }
+
+        this.minor = minor
+    }
+
+    int revision
+
+    void setRevision(int revision) {
+        if (revision < 0 || 1280 < revision) {
+            throw new IllegalArgumentException("revision=0..1280")
+        }
+
+        this.revision = revision
+    }
+
+    int getVersionCode() {
+        (major << 24) + (minor << 12) + revision
+    }
+
+    Version(String versionName) {
+        def versionList = versionName.split("\\.")
+
+        if (versionList.size() < 4) {
+            throw new IllegalArgumentException("version_name=<(0..125).(A..Z).(0..695).(0..1280)>")
+        }
+
+        setMajor(versionList[0].toInteger())
+        setBranch(versionList[1].toCharacter())
+        setMinor(versionList[2].toInteger())
+        setRevision(versionList[3].toInteger())
+    }
+
+    @Override
+    String toString() {
+        "$major.$branch.$minor.$revision"
+    }
+}
