@@ -17,18 +17,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MainService extends Service {
-    private static final Object MONITOR;
-    private static final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-
-    private static CalendarWrapper sCalendarWrapper;
-
     private HandlerThread mHandlerThread;
     private Handler mHandler;
+    private Handler mMainHandler;
     private ThreadPoolExecutor mExecutor;
-
-    static {
-        MONITOR = new Object();
-    }
 
     @Override
     public void onCreate() {
@@ -37,6 +29,7 @@ public class MainService extends Service {
         mHandlerThread = new HandlerThread("MainServiceHandler");
         mHandlerThread.start();
         mHandler = new Handler(mHandlerThread.getLooper());
+        mHandler = new Handler(getMainLooper());
     }
 
     @Override
@@ -48,6 +41,9 @@ public class MainService extends Service {
             mExecutor = null;
         }
 
+        mMainHandler.removeCallbacksAndMessages(null);
+        mMainHandler = null;
+        mHandler.removeCallbacksAndMessages(null);
         mHandler = null;
         mHandlerThread.quitSafely();
         mHandlerThread = null;
@@ -57,31 +53,35 @@ public class MainService extends Service {
     public int onStartCommand(Intent intent, int flags, int startId) {
         log("MainService#onStartCommand intent=%s", intent);
 
-        if (intent == null) {
-            log("MainService#onStartCommand intent is null");
+        if (intent == null || "stop".equals(intent.getAction())) {
             stopSelf();
-
             return START_NOT_STICKY;
         }
 
         mHandler.post(() -> {
-            mExecutor = (ThreadPoolExecutor) Executors.newFixedThreadPool(
-                    intent.getIntExtra("thread", Runtime.getRuntime().availableProcessors()));
+            final int thread =
+                    intent.getIntExtra("thread", Runtime.getRuntime().availableProcessors());
+            mExecutor = prepareExecutor(thread);
+
             final int loopNum = intent.getIntExtra("loop", 1000000);
+            log("MainService#onStartCommand env thread=%s, loop=%s", thread, loopNum);
 
-            final long reentrantLoopStart = System.nanoTime();
-            reentrantLoop(loopNum);
-            final long reentrantLoopEnd = System.nanoTime();
-            log("MainService#onStartCommand synchronizedLoop time=%s ms",
-                    TimeUnit.NANOSECONDS.toMillis(reentrantLoopEnd - reentrantLoopStart));
+            final long reentrantTime = time(() -> reentrantLoop(loopNum));
+            log("MainService#onStartCommand reentrantLoop time=%s ms = %s s",
+                    TimeUnit.NANOSECONDS.toMillis(reentrantTime),
+                    TimeUnit.NANOSECONDS.toSeconds(reentrantTime));
 
-            final long synchronizedLoopStart = System.nanoTime();
-            synchronizedLoop(loopNum);
-            final long synchronizedLoopEnd = System.nanoTime();
-            log("MainService#onStartCommand synchronizedLoop time=%s ms",
-                    TimeUnit.NANOSECONDS.toMillis(synchronizedLoopEnd - synchronizedLoopStart));
+            final long synchronizedTime = time(() -> synchronizedLoop(loopNum));
+            log("MainService#onStartCommand synchronizedLoop time=%s ms = %s s",
+                    TimeUnit.NANOSECONDS.toMillis(synchronizedTime),
+                    TimeUnit.NANOSECONDS.toSeconds(synchronizedTime));
 
-            stopSelf();
+            mMainHandler.post(() -> {
+                if (mExecutor != null) {
+                    mExecutor.shutdown();
+                    mExecutor = null;
+                }
+            });
         });
         return START_NOT_STICKY;
     }
@@ -97,10 +97,12 @@ public class MainService extends Service {
     }
 
     private void reentrantLoop(int loopNum) {
+        final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
         final ReentrantReadWriteLock.WriteLock writeLock = lock.writeLock();
+        final CalendarWrapper calendarWrapper = new CalendarWrapper();
         writeLock.lock();
         try {
-            sCalendarWrapper = new CalendarWrapper();
+            calendarWrapper.setCalendar(Calendar.getInstance());
         } finally {
             writeLock.unlock();
         }
@@ -111,7 +113,7 @@ public class MainService extends Service {
             mExecutor.execute(() -> {
                 readLock.lock();
                 try {
-                    stubDate(sCalendarWrapper.getCalendar().getTime());
+                    stubDate(calendarWrapper.getCalendar().getTime());
                 } finally {
                     readLock.unlock();
                 }
@@ -128,22 +130,24 @@ public class MainService extends Service {
 
         writeLock.lock();
         try {
-            sCalendarWrapper = null;
+            calendarWrapper.setCalendar(null);
         } finally {
             writeLock.unlock();
         }
     }
 
     private void synchronizedLoop(int loopNum) {
-        synchronized (MONITOR) {
-            sCalendarWrapper = new CalendarWrapper();
+        final Object monitor = new Object();
+        final CalendarWrapper calendarWrapper = new CalendarWrapper();
+        synchronized (monitor) {
+            calendarWrapper.setCalendar(Calendar.getInstance());
         }
 
         final CountDownLatch latch = new CountDownLatch(loopNum);
         for (int i = 0; i < loopNum; i++) {
             mExecutor.execute(() -> {
-                synchronized (MONITOR) {
-                    stubDate(sCalendarWrapper.getCalendar().getTime());
+                synchronized (monitor) {
+                    stubDate(calendarWrapper.getCalendar().getTime());
                 }
 
                 latch.countDown();
@@ -156,9 +160,39 @@ public class MainService extends Service {
             // nothing to do.
         }
 
-        synchronized (MONITOR) {
-            sCalendarWrapper = null;
+        synchronized (monitor) {
+            calendarWrapper.setCalendar(null);
         }
+    }
+
+    private static ThreadPoolExecutor prepareExecutor(int threadNum) {
+        final ThreadPoolExecutor executor =
+                (ThreadPoolExecutor) Executors.newFixedThreadPool(threadNum);
+        final CountDownLatch outerLatch = new CountDownLatch(threadNum);
+        final CountDownLatch innerLatch = new CountDownLatch(1);
+        for (int i = 0; i < threadNum; i++) {
+            executor.execute(() -> {
+                try {
+                    innerLatch.await();
+                    outerLatch.countDown();
+                } catch (InterruptedException e) {
+                    // does nothing.
+                }
+            });
+        }
+        innerLatch.countDown();
+        try {
+            outerLatch.await();
+        } catch (InterruptedException e) {
+            // does nothing.
+        }
+        return executor;
+    }
+
+    private static long time(Runnable runnable) {
+        final long start = System.nanoTime();
+        runnable.run();
+        return System.nanoTime() - start;
     }
 
     private static void stubDate(Date date) {
@@ -170,11 +204,17 @@ public class MainService extends Service {
     }
 
     private static class CalendarWrapper {
+        private Calendar mCalendar;
+
         CalendarWrapper() {
         }
 
         Calendar getCalendar() {
-            return Calendar.getInstance();
+            return mCalendar;
+        }
+
+        void setCalendar(Calendar calendar) {
+            mCalendar = calendar;
         }
     }
 }
