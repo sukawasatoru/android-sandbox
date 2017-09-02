@@ -2,33 +2,14 @@
 <manifest
     xmlns:android="http://schemas.android.com/apk/res/android"
     package="jp.tinyport.tinytest">
-    <uses-feature
-        android:name="android.hardware.touchscreen"
-        android:required="false"/>
-
-    <uses-feature
-        android:name="android.software.leanback"
-        android:required="false"/>
 
     <application
-        android:name=".core.App"
         android:allowBackup="false"
         android:banner="@mipmap/banner"
         android:icon="@android:mipmap/sym_def_app_icon"
         android:label="TINYTEST"
         android:logo="@android:mipmap/sym_def_app_icon"
-        android:supportsRtl="true"
-        android:theme="@android:style/Theme.NoDisplay">
-        <activity
-            android:name=".MainActivity"
-            android:banner="@mipmap/banner"
-            android:label="TINYTEST"
-            android:logo="@android:mipmap/sym_def_app_icon">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LEANBACK_LAUNCHER"/>
-            </intent-filter>
-        </activity>
+        android:supportsRtl="true">
         <service android:name=".MainService" android:exported="true"/>
     </application>
 </manifest>
